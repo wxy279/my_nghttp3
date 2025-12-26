@@ -39,6 +39,8 @@
 #include "nghttp3_gaptr.h"
 #include "nghttp3_ratelim.h"
 
+#include "dptest_nghttp3_stats_adapter.h"
+
 /* NGHTTP3_QPACK_ENCODER_MAX_TABLE_CAPACITY is the maximum dynamic
    table size for QPACK encoder. */
 #define NGHTTP3_QPACK_ENCODER_MAX_TABLE_CAPACITY 16384
@@ -91,6 +93,7 @@ struct nghttp3_conn {
   } sched[NGHTTP3_URGENCY_LEVELS];
   const nghttp3_mem *mem;
   void *user_data;
+  void *stats_ctx;
   int server;
   uint16_t flags;
 

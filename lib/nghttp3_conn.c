@@ -2511,6 +2511,7 @@ int nghttp3_conn_submit_request(nghttp3_conn *conn, int64_t stream_id,
   stream->user_data = stream_user_data;
   stream->node.pri.inc = 1;
 
+  H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_h3_open_streams_ide);
   nghttp3_http_record_request_method(stream, nva, nvlen);
 
   if (dr == NULL) {
@@ -2798,6 +2799,11 @@ void nghttp3_conn_set_max_concurrent_streams(nghttp3_conn *conn,
                                              size_t max_concurrent_streams) {
   nghttp3_qpack_decoder_set_max_concurrent_streams(&conn->qdec,
                                                    max_concurrent_streams);
+}
+
+void nghttp3_conn_set_dptest_stats_ctx(nghttp3_conn *conn, void *stats_ctx)
+{
+	conn->stats_ctx = stats_ctx;
 }
 
 int nghttp3_conn_set_stream_user_data(nghttp3_conn *conn, int64_t stream_id,

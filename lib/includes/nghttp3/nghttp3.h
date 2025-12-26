@@ -2842,6 +2842,19 @@ nghttp3_conn_set_max_concurrent_streams(nghttp3_conn *conn,
                                         size_t max_concurrent_streams);
 
 /**
+ * @function
+ *
+ * `nghttp3_conn_set_max_concurrent_streams` tells |conn| the maximum
+ * number of concurrent streams that a remote endpoint can open,
+ * including both bidirectional and unidirectional streams which
+ * potentially receive QPACK encoded HEADERS frame.  This value is
+ * used as a hint to limit the internal resource consumption.
+ */
+NGHTTP3_EXTERN void
+nghttp3_conn_set_dptest_stats_ctx(nghttp3_conn *conn, void *stats_ctx);
+
+
+/**
  * @functypedef
  *
  * :type:`nghttp3_read_data_callback` is a callback function invoked
