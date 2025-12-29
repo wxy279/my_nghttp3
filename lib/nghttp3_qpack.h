@@ -178,6 +178,7 @@ typedef struct nghttp3_qpack_context {
      further invocation of inflate/deflate will fail with
      NGHTTP3_ERR_QPACK_FATAL. */
   uint8_t bad;
+  void *stats_ctx;
 } nghttp3_qpack_context;
 
 typedef struct nghttp3_qpack_read_state {
@@ -284,6 +285,13 @@ void nghttp3_qpack_encoder_init(nghttp3_qpack_encoder *encoder,
  * This function does not free memory pointed by |encoder|.
  */
 void nghttp3_qpack_encoder_free(nghttp3_qpack_encoder *encoder);
+
+/*
+ * nghttp3_qpack_encoder_setup_stats setups |decoder|.
+ * stats pointer |stats_ctx| is the pointer.
+ */
+void nghttp3_qpack_encoder_setup_stats(nghttp3_qpack_encoder *encoder, void *stats_ctx);
+
 
 /*
  * nghttp3_qpack_encoder_encode_nv encodes |nv|.  It writes request
@@ -801,11 +809,18 @@ void nghttp3_qpack_decoder_init(nghttp3_qpack_decoder *decoder,
                                 size_t max_blocked_streams,
                                 const nghttp3_mem *mem);
 
+
 /*
  * nghttp3_qpack_decoder_free frees memory allocated for |decoder|.
  * This function does not free memory pointed by |decoder|.
  */
 void nghttp3_qpack_decoder_free(nghttp3_qpack_decoder *decoder);
+
+/*
+ * nghttp3_qpack_decoder_setup_stats setups |decoder|.
+ * stats pointer |stats_ctx| is the pointer.
+ */
+void nghttp3_qpack_decoder_setup_stats(nghttp3_qpack_decoder *decoder, void *stats_ctx);
 
 /*
  * nghttp3_qpack_decoder_dtable_indexed_add adds entry received in

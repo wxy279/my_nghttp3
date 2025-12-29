@@ -2804,6 +2804,8 @@ void nghttp3_conn_set_max_concurrent_streams(nghttp3_conn *conn,
 void nghttp3_conn_set_dptest_stats_ctx(nghttp3_conn *conn, void *stats_ctx)
 {
 	conn->stats_ctx = stats_ctx;
+	nghttp3_qpack_encoder_setup_stats(&conn->qenc, stats_ctx);
+	nghttp3_qpack_decoder_setup_stats(&conn->qdec, stats_ctx);
 }
 
 int nghttp3_conn_set_stream_user_data(nghttp3_conn *conn, int64_t stream_id,

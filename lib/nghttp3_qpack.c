@@ -34,6 +34,8 @@
 #include "nghttp3_debug.h"
 #include "nghttp3_unreachable.h"
 
+#include "dptest_nghttp3_stats_adapter.h"
+
 /* NGHTTP3_QPACK_MAX_QPACK_STREAMS is the maximum number of concurrent
    nghttp3_qpack_stream object to handle a client which never cancel
    or acknowledge header block.  After this limit, encoder stops using
@@ -938,6 +940,11 @@ void nghttp3_qpack_encoder_free(nghttp3_qpack_encoder *encoder) {
   qpack_context_free(&encoder->ctx);
 }
 
+void nghttp3_qpack_encoder_setup_stats(nghttp3_qpack_encoder *encoder, void *stats_ctx)
+{
+	encoder->ctx.stats_ctx = stats_ctx;
+}
+
 void nghttp3_qpack_encoder_set_max_dtable_capacity(
   nghttp3_qpack_encoder *encoder, size_t max_dtable_capacity) {
   max_dtable_capacity =
@@ -1005,6 +1012,9 @@ void nghttp3_qpack_encoder_shrink_dtable(nghttp3_qpack_encoder *encoder) {
 
     nghttp3_qpack_entry_free(ent);
     nghttp3_mem_free(mem, ent);
+
+    H3_FAST_STATS_INC(encoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_enc_srk_evict_ide);
+
   }
 }
 
@@ -1481,6 +1491,7 @@ int nghttp3_qpack_encoder_encode_nv(nghttp3_qpack_encoder *encoder,
   if (static_entry) {
     sres = nghttp3_qpack_lookup_stable(nv, token, indexing_mode);
     if (sres.index != -1 && sres.name_value_match) {
+	  H3_FAST_STATS_INC(encoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_hit_sfull_ide);
       return nghttp3_qpack_encoder_write_static_indexed(encoder, rbuf,
                                                         (size_t)sres.index);
     }
@@ -1535,12 +1546,13 @@ int nghttp3_qpack_encoder_encode_nv(nghttp3_qpack_encoder *encoder,
     }
     *pmax_cnt = nghttp3_max(*pmax_cnt, (uint64_t)(dres.index + 1));
     *pmin_cnt = nghttp3_min(*pmin_cnt, (uint64_t)(dres.index + 1));
-
+    H3_FAST_STATS_INC(encoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_hit_dfull_ide);
     return nghttp3_qpack_encoder_write_dynamic_indexed(
       encoder, rbuf, (size_t)dres.index, base);
   }
 
   if (sres.index != -1) {
+    H3_FAST_STATS_INC(encoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_hit_sname_ide);
     if (just_index && qpack_encoder_can_index_nv(encoder, nv, *pmin_cnt)) {
       rv = nghttp3_qpack_encoder_write_static_insert(encoder, ebuf,
                                                      (size_t)sres.index, nv);
@@ -1567,6 +1579,7 @@ int nghttp3_qpack_encoder_encode_nv(nghttp3_qpack_encoder *encoder,
   }
 
   if (dres.index != -1) {
+    H3_FAST_STATS_INC(encoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_hit_dname_ide);
     if (just_index &&
         qpack_encoder_can_index_nv(
           encoder, nv,
@@ -1604,7 +1617,7 @@ int nghttp3_qpack_encoder_encode_nv(nghttp3_qpack_encoder *encoder,
     return nghttp3_qpack_encoder_write_dynamic_indexed_name(
       encoder, rbuf, (size_t)dres.index, base, nv);
   }
-
+  H3_FAST_STATS_INC(encoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_hit_none_ide);
   if (just_index && qpack_encoder_can_index_nv(encoder, nv, *pmin_cnt)) {
     rv = nghttp3_qpack_encoder_dtable_literal_add(encoder, nv, token, hash);
     if (rv != 0) {
@@ -2089,7 +2102,10 @@ int nghttp3_qpack_context_dtable_add(nghttp3_qpack_context *ctx,
 
     nghttp3_ringbuf_pop_back(&ctx->dtable);
     if (dtable_map) {
+      H3_FAST_STATS_INC(ctx->stats_ctx, dproxy_myhttp3_stats_qpack_enc_add_evict_ide);
       qpack_map_remove(dtable_map, ent);
+    } else {
+      H3_FAST_STATS_INC(ctx->stats_ctx, dproxy_myhttp3_stats_qpack_dec_add_evict_ide);
     }
 
     nghttp3_qpack_entry_free(ent);
@@ -2721,6 +2737,11 @@ void nghttp3_qpack_decoder_free(nghttp3_qpack_decoder *decoder) {
   qpack_context_free(&decoder->ctx);
 }
 
+void nghttp3_qpack_decoder_setup_stats(nghttp3_qpack_decoder *decoder, void *stats_ctx)
+{
+	decoder->ctx.stats_ctx = stats_ctx;
+}
+
 /*
  * qpack_read_huffman_string decodes huffman string in buffer [begin,
  * end) and writes the decoded string to |dest|.  This function
@@ -3164,6 +3185,8 @@ int nghttp3_qpack_decoder_set_max_dtable_capacity(
     nghttp3_ringbuf_pop_back(&ctx->dtable);
     nghttp3_qpack_entry_free(ent);
     nghttp3_mem_free(mem, ent);
+
+    H3_FAST_STATS_INC(decoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_dec_cap_evict_ide);
   }
 
   return 0;
@@ -3413,6 +3436,7 @@ nghttp3_qpack_decoder_read_request(nghttp3_qpack_decoder *decoder,
         DEBUGF("qpack::decode: stream blocked\n");
         sctx->state = NGHTTP3_QPACK_RS_STATE_BLOCKED;
         *pflags |= NGHTTP3_QPACK_DECODE_FLAG_BLOCKED;
+		H3_FAST_STATS_INC(decoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_blocked_ide);
         return p - src;
       }
 
@@ -3748,6 +3772,7 @@ nghttp3_qpack_decoder_read_request(nghttp3_qpack_decoder *decoder,
       if (sctx->ricnt > decoder->ctx.next_absidx) {
         DEBUGF("qpack::decode: stream still blocked\n");
         *pflags |= NGHTTP3_QPACK_DECODE_FLAG_BLOCKED;
+        H3_FAST_STATS_INC(decoder->ctx.stats_ctx, dproxy_myhttp3_stats_qpack_block_kept_ide);
         return p - src;
       }
       sctx->state = NGHTTP3_QPACK_RS_STATE_OPCODE;
