@@ -1064,6 +1064,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     nghttp3_unreachable();
   case NGHTTP3_HTTP_STATE_REQ_INITIAL:
     if (event != NGHTTP3_HTTP_EVENT_HEADERS_BEGIN) {
+      H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
       return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
     }
 
@@ -1079,6 +1080,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     case NGHTTP3_HTTP_EVENT_HEADERS_BEGIN:
       /* TODO Better to check status code */
       if (stream->rx.http.flags & NGHTTP3_HTTP_FLAG_METH_CONNECT) {
+        H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       }
       stream->rx.hstate = NGHTTP3_HTTP_STATE_REQ_TRAILERS_BEGIN;
@@ -1108,6 +1110,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     case NGHTTP3_HTTP_EVENT_HEADERS_BEGIN:
       /* TODO Better to check status code */
       if (stream->rx.http.flags & NGHTTP3_HTTP_FLAG_METH_CONNECT) {
+        H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       }
       stream->rx.hstate = NGHTTP3_HTTP_STATE_REQ_TRAILERS_BEGIN;
@@ -1130,6 +1133,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     if (event != NGHTTP3_HTTP_EVENT_MSG_END) {
       /* TODO Should ignore unexpected frame in this state as per
          spec. */
+      H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
       return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
     }
     rv = nghttp3_http_on_remote_end_stream(stream);
@@ -1139,9 +1143,11 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     stream->rx.hstate = NGHTTP3_HTTP_STATE_REQ_END;
     return 0;
   case NGHTTP3_HTTP_STATE_REQ_END:
+    H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
     return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
   case NGHTTP3_HTTP_STATE_RESP_INITIAL:
     if (event != NGHTTP3_HTTP_EVENT_HEADERS_BEGIN) {
+      H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
       return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
     }
     stream->rx.hstate = NGHTTP3_HTTP_STATE_RESP_HEADERS_BEGIN;
@@ -1159,12 +1165,14 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
       }
       if ((stream->rx.http.flags & NGHTTP3_HTTP_FLAG_METH_CONNECT) &&
           stream->rx.http.status_code / 100 == 2) {
+        H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       }
       stream->rx.hstate = NGHTTP3_HTTP_STATE_RESP_TRAILERS_BEGIN;
       return 0;
     case NGHTTP3_HTTP_EVENT_DATA_BEGIN:
       if (stream->rx.http.flags & NGHTTP3_HTTP_FLAG_EXPECT_FINAL_RESPONSE) {
+        H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       }
       stream->rx.hstate = NGHTTP3_HTTP_STATE_RESP_DATA_BEGIN;
@@ -1191,6 +1199,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     case NGHTTP3_HTTP_EVENT_HEADERS_BEGIN:
       if ((stream->rx.http.flags & NGHTTP3_HTTP_FLAG_METH_CONNECT) &&
           stream->rx.http.status_code / 100 == 2) {
+        H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       }
       stream->rx.hstate = NGHTTP3_HTTP_STATE_RESP_TRAILERS_BEGIN;
@@ -1211,6 +1220,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     return 0;
   case NGHTTP3_HTTP_STATE_RESP_TRAILERS_END:
     if (event != NGHTTP3_HTTP_EVENT_MSG_END) {
+      H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
       return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
     }
     rv = nghttp3_http_on_remote_end_stream(stream);
@@ -1220,6 +1230,7 @@ int nghttp3_stream_transit_rx_http_state(nghttp3_stream *stream,
     stream->rx.hstate = NGHTTP3_HTTP_STATE_RESP_END;
     return 0;
   case NGHTTP3_HTTP_STATE_RESP_END:
+    H3_FAST_STATS_INC(stream->conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
     return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
   default:
     nghttp3_unreachable();

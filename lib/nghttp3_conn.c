@@ -471,6 +471,7 @@ nghttp3_ssize nghttp3_conn_read_stream2(nghttp3_conn *conn, int64_t stream_id,
   nghttp3_stream *stream;
   size_t bidi_nproc;
   int rv;
+  nghttp3_ssize nconsumed;
 
   assert(stream_id >= 0);
   assert(stream_id <= (int64_t)NGHTTP3_MAX_VARINT);
@@ -562,8 +563,11 @@ nghttp3_ssize nghttp3_conn_read_stream2(nghttp3_conn *conn, int64_t stream_id,
   if (fin) {
     stream->flags |= NGHTTP3_STREAM_FLAG_READ_EOF;
   }
-  return nghttp3_conn_read_bidi(conn, &bidi_nproc, stream, src, srclen, fin,
-                                ts);
+  nconsumed = nghttp3_conn_read_bidi(conn, &bidi_nproc, stream, src, srclen, fin, ts);
+  if (nconsumed < 0) {
+    H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_rd_bidi_err_ide);
+  }
+  return nconsumed;
 }
 
 static nghttp3_ssize conn_read_type(nghttp3_conn *conn, nghttp3_stream *stream,
@@ -578,6 +582,7 @@ static nghttp3_ssize conn_read_type(nghttp3_conn *conn, nghttp3_stream *stream,
 
   nread = nghttp3_read_varint(rvint, src, src + srclen, fin);
   if (nread < 0) {
+    H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_gener_proto_err_ide);
     return NGHTTP3_ERR_H3_GENERAL_PROTOCOL_ERROR;
   }
 
@@ -640,12 +645,14 @@ nghttp3_ssize nghttp3_conn_read_uni(nghttp3_conn *conn, nghttp3_stream *stream,
          If it is closed while reading it, return error, making it
          consistent in our code base. */
       if (stream->rstate.rvint.left) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_gener_proto_err_ide);
         return NGHTTP3_ERR_H3_GENERAL_PROTOCOL_ERROR;
       }
 
       /* Receiving too frequent 0 length unidirectional stream is
          suspicious. */
       if (conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
         return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
       }
 
@@ -666,6 +673,7 @@ nghttp3_ssize nghttp3_conn_read_uni(nghttp3_conn *conn, nghttp3_stream *stream,
     if (stream->type == NGHTTP3_STREAM_TYPE_UNKNOWN) {
       /* Receiving too frequent unknown stream type is suspicious.*/
       if (conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
         return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
       }
 
@@ -686,18 +694,21 @@ nghttp3_ssize nghttp3_conn_read_uni(nghttp3_conn *conn, nghttp3_stream *stream,
   switch (stream->type) {
   case NGHTTP3_STREAM_TYPE_CONTROL:
     if (fin) {
+      H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_close_crit_strm_ide);
       return NGHTTP3_ERR_H3_CLOSED_CRITICAL_STREAM;
     }
     nconsumed = nghttp3_conn_read_control(conn, stream, src, srclen, ts);
     break;
   case NGHTTP3_STREAM_TYPE_QPACK_ENCODER:
     if (fin) {
+      H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_close_crit_strm_ide);
       return NGHTTP3_ERR_H3_CLOSED_CRITICAL_STREAM;
     }
     nconsumed = nghttp3_conn_read_qpack_encoder(conn, src, srclen, ts);
     break;
   case NGHTTP3_STREAM_TYPE_QPACK_DECODER:
     if (fin) {
+      H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_close_crit_strm_ide);
       return NGHTTP3_ERR_H3_CLOSED_CRITICAL_STREAM;
     }
     nconsumed = nghttp3_conn_read_qpack_decoder(conn, src, srclen);
@@ -710,6 +721,19 @@ nghttp3_ssize nghttp3_conn_read_uni(nghttp3_conn *conn, nghttp3_stream *stream,
   }
 
   if (nconsumed < 0) {
+	switch (stream->type) {
+		case NGHTTP3_STREAM_TYPE_CONTROL:
+			H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_rd_control_err_ide);
+			break;
+		case NGHTTP3_STREAM_TYPE_QPACK_ENCODER:
+			H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_rd_qencoder_err_ide);
+			break;
+		case NGHTTP3_STREAM_TYPE_QPACK_DECODER:
+			H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_rd_qdecoder_err_ide);
+			break;
+		default:
+			// do nothing
+	}
     return nconsumed;
   }
 
@@ -749,6 +773,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(end - p > 0);
       nread = nghttp3_read_varint(rvint, p, end, /* fin = */ 0);
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_gener_proto_err_ide);
         return NGHTTP3_ERR_H3_GENERAL_PROTOCOL_ERROR;
       }
 
@@ -769,6 +794,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(end - p > 0);
       nread = nghttp3_read_varint(rvint, p, end, /* fin = */ 0);
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -783,10 +809,12 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
 
       if (!(conn->flags & NGHTTP3_CONN_FLAG_SETTINGS_RECVED)) {
         if (rstate->fr.hd.type != NGHTTP3_FRAME_SETTINGS) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_ctl_no_settings_ide);
           return NGHTTP3_ERR_H3_MISSING_SETTINGS;
         }
         conn->flags |= NGHTTP3_CONN_FLAG_SETTINGS_RECVED;
       } else if (rstate->fr.hd.type == NGHTTP3_FRAME_SETTINGS) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       }
 
@@ -807,40 +835,50 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
         break;
       case NGHTTP3_FRAME_GOAWAY:
         if (rstate->left == 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_ctl_goaway_ide);
         rstate->state = NGHTTP3_CTRL_STREAM_STATE_GOAWAY;
         break;
       case NGHTTP3_FRAME_MAX_PUSH_ID:
         if (!conn->server) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
           return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
         }
         if (rstate->left == 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_ctl_push_id_ide);
         rstate->state = NGHTTP3_CTRL_STREAM_STATE_MAX_PUSH_ID;
         break;
       case NGHTTP3_FRAME_PRIORITY_UPDATE:
         if (!conn->server) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
           return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
         }
         if (rstate->left == 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
 
         /* We do not expect too frequent priority updates. */
         if (conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
           return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
         }
-
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_ctl_priority_update_ide);
         rstate->state = NGHTTP3_CTRL_STREAM_STATE_PRIORITY_UPDATE_PRI_ELEM_ID;
         break;
       case NGHTTP3_FRAME_PRIORITY_UPDATE_PUSH_ID:
         /* We do not support push */
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_id_error_ide);
         return NGHTTP3_ERR_H3_ID_ERROR;
       case NGHTTP3_FRAME_ORIGIN:
         /* We do not expect too frequent ORIGIN frames. */
         if (conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
           return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
         }
 
@@ -864,7 +902,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
         }
 
         conn_reset_rx_originlen(conn);
-
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_ctl_origin_ide);
         rstate->state = NGHTTP3_CTRL_STREAM_STATE_ORIGIN_ORIGIN_LEN;
 
         break;
@@ -876,16 +914,19 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       case NGHTTP3_H2_FRAME_PING:
       case NGHTTP3_H2_FRAME_WINDOW_UPDATE:
       case NGHTTP3_H2_FRAME_CONTINUATION:
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       default:
         /* We do not expect too frequent unknown frames. */
         if (conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
           return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
         }
 
         /* TODO Handle reserved frame type */
         busy = 1;
         rstate->state = NGHTTP3_CTRL_STREAM_STATE_IGN_FRAME;
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_ctl_hit_default_ide);
         break;
       }
       break;
@@ -910,6 +951,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
         assert(len > 0);
         nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
         if (nread < 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
 
@@ -925,6 +967,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
 
         /* Read Value */
         if (rstate->left == 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
 
@@ -936,6 +979,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
 
         nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
         if (nread < 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
 
@@ -961,6 +1005,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(len > 0);
       nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -974,6 +1019,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       nghttp3_varint_read_state_reset(rvint);
 
       if (rstate->left == 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -988,6 +1034,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(len > 0);
       nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -1022,6 +1069,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(len > 0);
       nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -1033,15 +1081,18 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       }
 
       if (!conn->server && !nghttp3_client_stream_bidi(rvint->acc)) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_id_error_ide);
         return NGHTTP3_ERR_H3_ID_ERROR;
       }
       if (conn->rx.goaway_id < rvint->acc) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_id_error_ide);
         return NGHTTP3_ERR_H3_ID_ERROR;
       }
 
       /* Receiving same GOAWAY ID is suspicious. */
       if (conn->rx.goaway_id == rvint->acc &&
           conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
         return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
       }
 
@@ -1065,6 +1116,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(len > 0);
       nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -1076,12 +1128,14 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       }
 
       if (conn->local.uni.max_pushes > (uint64_t)rvint->acc + 1) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
       /* Receiving same MAX_PUSH_ID is suspicious. */
       if (conn->local.uni.max_pushes == (uint64_t)rvint->acc + 1 &&
           conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
         return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
       }
 
@@ -1096,6 +1150,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       assert(len > 0);
       nread = nghttp3_read_varint(rvint, p, p + len, frame_fin(rstate, len));
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -1178,6 +1233,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
       if (nghttp3_http_parse_priority(&rstate->fr.priority_update.pri,
                                       pri_field_value,
                                       pri_field_valuelen) != 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_gener_proto_err_ide);
         return NGHTTP3_ERR_H3_GENERAL_PROTOCOL_ERROR;
       }
 
@@ -1211,6 +1267,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
         if (conn->rx.originlen_offset < sizeof(conn->rx.originlen)) {
           /* Needs another byte to parse Origin-Len */
           if (rstate->left == 0) {
+            H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
             return NGHTTP3_ERR_H3_FRAME_ERROR;
           }
 
@@ -1220,6 +1277,7 @@ nghttp3_ssize nghttp3_conn_read_control(nghttp3_conn *conn,
         if (conn->rx.originlen == 0 || rstate->left < conn->rx.originlen) {
           /* While this seems OK in very loose RFC, allowing this
              sounds like an atack vector. */
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
           return NGHTTP3_ERR_H3_FRAME_ERROR;
         }
 
@@ -1400,6 +1458,7 @@ static int conn_process_blocked_stream_data(nghttp3_conn *conn,
       conn, &nproc, stream, buf->pos, nghttp3_buf_len(buf),
       len == 1 && (stream->flags & NGHTTP3_STREAM_FLAG_READ_EOF), ts);
     if (nconsumed < 0) {
+      H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_rd_bidi_err_ide);
       return (int)nconsumed;
     }
 
@@ -1526,6 +1585,7 @@ nghttp3_ssize nghttp3_conn_read_bidi(nghttp3_conn *conn, size_t *pnproc,
       assert(end - p > 0);
       nread = nghttp3_read_varint(rvint, p, end, fin);
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_gener_proto_err_ide);
         return NGHTTP3_ERR_H3_GENERAL_PROTOCOL_ERROR;
       }
 
@@ -1546,6 +1606,7 @@ nghttp3_ssize nghttp3_conn_read_bidi(nghttp3_conn *conn, size_t *pnproc,
       assert(end - p > 0);
       nread = nghttp3_read_varint(rvint, p, end, fin);
       if (nread < 0) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
         return NGHTTP3_ERR_H3_FRAME_ERROR;
       }
 
@@ -1626,10 +1687,12 @@ nghttp3_ssize nghttp3_conn_read_bidi(nghttp3_conn *conn, size_t *pnproc,
       case NGHTTP3_H2_FRAME_PING:
       case NGHTTP3_H2_FRAME_WINDOW_UPDATE:
       case NGHTTP3_H2_FRAME_CONTINUATION:
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_unexpected_ide);
         return NGHTTP3_ERR_H3_FRAME_UNEXPECTED;
       default:
         /* We do not expect too frequent unknown frames. */
         if (conn_glitch_ratelim_drain(conn, 1, ts) != 0) {
+          H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_excessive_load_ide);
           return NGHTTP3_ERR_H3_EXCESSIVE_LOAD;
         }
 
@@ -1764,6 +1827,7 @@ almost_done:
     switch (rstate->state) {
     case NGHTTP3_REQ_STREAM_STATE_FRAME_TYPE:
       if (rvint->left) {
+        H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_gener_proto_err_ide);
         return NGHTTP3_ERR_H3_GENERAL_PROTOCOL_ERROR;
       }
       rv = nghttp3_stream_transit_rx_http_state(stream,
@@ -1779,6 +1843,7 @@ almost_done:
     case NGHTTP3_REQ_STREAM_STATE_IGN_REST:
       break;
     default:
+      H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_frame_error_ide);
       return NGHTTP3_ERR_H3_FRAME_ERROR;
     }
   }
@@ -2023,6 +2088,7 @@ conn_on_priority_update_stream(nghttp3_conn *conn,
 
   if (!nghttp3_client_stream_bidi(stream_id) ||
       nghttp3_ord_stream_id(stream_id) > conn->remote.bidi.max_client_streams) {
+    H3_FAST_STATS_INC(conn->stats_ctx, dproxy_myhttp3_stats_id_error_ide);
     return NGHTTP3_ERR_H3_ID_ERROR;
   }
 
